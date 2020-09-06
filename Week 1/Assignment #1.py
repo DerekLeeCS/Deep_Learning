@@ -13,9 +13,9 @@ M = 10   # Number of Gaussians
 numEpochs = 200
 
 # Variables
-eps = tf.random.normal( [N], 0, sigNoise )
-x = tf.random.uniform( [N], 0, 1 )
-y = np.sin( 2 * np.pi * x ) + eps
+eps = tf.random.normal( [N,1], 0, sigNoise )
+x = tf.random.uniform( [N,1], 0, 1 )
+y = tf.sin( 2 * np.pi * x ) + eps
 
 # Used for graphing true sinewave without noise
 trueX = np.linspace( 0, 1, 500, dtype = 'float32' )
@@ -24,36 +24,25 @@ trueY = np.sin( 2 * np.pi * trueX )
 # Trainable Tensorflow variables
 w = tf.Variable( tf.random.uniform( [M], -0.5, 0.5 ) )
 mu =  tf.Variable( tf.linspace( -0.1, 1.1, [M] ) )
-sig = tf.Variable( tf.repeat( 0.25, repeats = M ) )
+sig = tf.Variable( 0.25 * tf.ones( shape = [M] ) )
 b = tf.Variable( tf.random.uniform( [1], -0.5, 0.5 ) )
 
 
 # Loss function
 @tf.function
-def lossFunc( x, w, mu, sig, b, y ): 
+def lossFunc( x, y ): 
     
-    MSE = 0
-    yHat = []
-
-    for i in range( N ):
-        yHat.append( estY( x[i], w, mu, sig, b ) )
-
-    for i in range( N ):
-        MSE += 0.5 * ( y[i] - yHat[i] )**2
+    yHat = tf.map_fn( estY, x ) # Applies estY elementwise to x
+    MSE = tf.reduce_sum( 0.5 * ( y - yHat )**2 )
         
     return MSE
 
 
-# Calculates yHat
+# Calculates yHat_i given x_i
 @tf.function
-def estY( x, w, mu, sig, b ):
+def estY( x ):
 
-    yHat = b
-
-    for j in range( M ):
-        yHat = yHat + w[j] * gaussian( x, mu[j], sig[j] ) 
-    
-    return yHat
+    return tf.reduce_sum( w * gaussian( x, mu, sig ) ) + b
 
 
 def gaussian( x, mu, sig ):
@@ -63,7 +52,7 @@ def gaussian( x, mu, sig ):
 
 def main():
 
-    print( "Starting MSE:", lossFunc( x, w, mu, sig, b, y ).numpy() )
+    print( "Starting MSE:", lossFunc( x, y ).numpy() )
 
     # Stochastic Gradient Descent
     # Idea from https://stackoverflow.com/questions/57759563/minimize-multivariate-function-in-tensorflow
@@ -75,18 +64,16 @@ def main():
 
         with tf.GradientTape() as tape:
 
-            loss = lossFunc( x, w, mu, sig, b, y )
+            loss = lossFunc( x, y )
             print(loss)
 
         grads = tape.gradient( loss, varList )
         opt.apply_gradients( zip( grads, varList ) )
 
-    print( "Final MSE:", lossFunc( x, w, mu, sig, b, y ).numpy() )
+    print( "Final MSE:", lossFunc( x, y ).numpy() )
 
     # Calculate y from training data
-    yPred = np.zeros( len( trueX ) )
-    for i in range( len( trueX ) ):
-        yPred[i] = estY( trueX[i], w, mu, sig, b ).numpy()
+    yPred = tf.map_fn( estY, trueX )
 
     # First plot
     plt.figure()
