@@ -70,7 +70,7 @@ def main():
     # Stochastic Gradient Descent
     # Idea from https://stackoverflow.com/questions/57759563/minimize-multivariate-function-in-tensorflow
     opt = tf.keras.optimizers.SGD()
-    var_list = [ w, mu, sig, b ]
+    varList = [ w, mu, sig, b ]
 
     # Iterate through epochs
     for _ in range( numEpochs ):
@@ -80,8 +80,8 @@ def main():
             loss = lossFunc( x, w, mu, sig, b, y )
             print(loss)
 
-        grads = tape.gradient( loss, var_list )
-        opt.apply_gradients( zip( grads, var_list ) )
+        grads = tape.gradient( loss, varList )
+        opt.apply_gradients( zip( grads, varList ) )
 
     print( "Final MSE:", lossFunc( x, w, mu, sig, b, y ).numpy() )
 
@@ -102,7 +102,7 @@ def main():
 
     # Second plot
     plt.figure()
-    plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'm', 'y', 'c']) ) )
+    plt.rc('axes', prop_cycle = ( cycler ('color', ['r', 'g', 'b', 'm', 'y', 'c']) ) )
 
     for j in range( M ):
         plt.plot( trueX, gaussian( trueX, mu[j], sig[j] ) )
