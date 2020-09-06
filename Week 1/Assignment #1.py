@@ -10,7 +10,7 @@ print("Eager execution: {}".format(tf.executing_eagerly()))
 N = 50
 sigNoise = 0.1
 M = 10   # Number of Gaussians 
-numEpochs = 100
+numEpochs = 200
 
 # Variables
 eps = tf.random.normal( [N], 0, sigNoise )
@@ -18,14 +18,14 @@ x = tf.random.uniform( [N], 0, 1 )
 y = np.sin( 2 * np.pi * x ) + eps
 
 # Used for graphing true sinewave without noise
-trueX = np.linspace( 0, 1, 500, dtype='float32' )
+trueX = np.linspace( 0, 1, 500, dtype = 'float32' )
 trueY = np.sin( 2 * np.pi * trueX )
 
 # Trainable Tensorflow variables
-w = tf.Variable( tf.random.uniform( [M], 0, 1 ) )
-mu =  tf.Variable( tf.random.uniform( [M], -0.5, 1.5 ) )
-sig = tf.Variable( tf.random.uniform( [M], -0.5, 0.5 ) )
-b = tf.Variable( tf.random.uniform( [1], -1, 1 ) )
+w = tf.Variable( tf.random.uniform( [M], -0.5, 0.5 ) )
+mu =  tf.Variable( tf.linspace( -0.1, 1.1, [M] ) )
+sig = tf.Variable( tf.repeat( 0.25, repeats = M ) )
+b = tf.Variable( tf.random.uniform( [1], -0.5, 0.5 ) )
 
 
 # Loss function
@@ -61,8 +61,6 @@ def gaussian( x, mu, sig ):
     return tf.math.exp( -( x - mu )**2 / sig**2 )
 
 
-
-
 def main():
 
     print( "Starting MSE:", lossFunc( x, w, mu, sig, b, y ).numpy() )
@@ -93,23 +91,23 @@ def main():
     # First plot
     plt.figure()
     plt.scatter( x, y, color = 'g' )                        # Noisy data
-    plt.plot( trueX, yPred, color = 'r', linestyle = '-' )  # Regression manifold
+    plt.plot( trueX, yPred, color = 'r', linestyle = '--' ) # Regression manifold
     plt.plot( trueX, trueY, color = 'b' )                   # Noiseless sinewave
-    plt.xlabel('x') 
-    plt.ylabel('y') 
-    plt.title("Fit 1") 
+    plt.xlabel( 'x' ) 
+    plt.ylabel( 'y', rotation = 0 ) 
+    plt.title( "Fit 1" ) 
     plt.show()
 
     # Second plot
     plt.figure()
-    plt.rc('axes', prop_cycle = ( cycler ('color', ['r', 'g', 'b', 'm', 'y', 'c']) ) )
+    plt.rc( 'axes', prop_cycle = ( cycler ('color', ['r', 'g', 'b', 'm', 'y', 'c']) ) )
 
     for j in range( M ):
         plt.plot( trueX, gaussian( trueX, mu[j], sig[j] ) )
 
-    plt.xlabel('x') 
-    plt.ylabel('y') 
-    plt.title("Bases for Fit 1") 
+    plt.xlabel( 'x' ) 
+    plt.ylabel( 'y', rotation = 0 ) 
+    plt.title( "Bases for Fit 1" ) 
     plt.show()
 
 
