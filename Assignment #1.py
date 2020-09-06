@@ -6,12 +6,11 @@ from cycler import cycler
 print("TensorFlow version: {}".format(tf.__version__))
 print("Eager execution: {}".format(tf.executing_eagerly()))
 
-
 # Constants
 N = 50
 sigNoise = 0.1
-M = 6   # Number of Gaussians 
-numEpochs = 50
+M = 10   # Number of Gaussians 
+numEpochs = 100
 
 # Variables
 eps = tf.random.normal( [N], 0, sigNoise )
@@ -19,12 +18,12 @@ x = tf.random.uniform( [N], 0, 1 )
 y = np.sin( 2 * np.pi * x ) + eps
 
 # Used for graphing true sinewave without noise
-trueX = np.linspace( 0, 1, 500 )
+trueX = np.linspace( 0, 1, 500, dtype='float32' )
 trueY = np.sin( 2 * np.pi * trueX )
 
 # Trainable Tensorflow variables
 w = tf.Variable( tf.random.uniform( [M], 0, 1 ) )
-mu =  tf.Variable( tf.random.uniform( [M], -0.5, 0.5 ) )
+mu =  tf.Variable( tf.random.uniform( [M], -0.5, 1.5 ) )
 sig = tf.Variable( tf.random.uniform( [M], -0.5, 0.5 ) )
 b = tf.Variable( tf.random.uniform( [1], -1, 1 ) )
 
@@ -66,70 +65,51 @@ def gaussian( x, mu, sig ):
 
 def main():
 
-    print ( "Starting MSE:", lossFunc(x, w, mu, sig, b, y ).numpy() )
+    print( "Starting MSE:", lossFunc( x, w, mu, sig, b, y ).numpy() )
 
     # Stochastic Gradient Descent
-    opt = tf.keras.optimizers.SGD( learning_rate=0.01 )
-    loss = lambda: lossFunc(x, w, mu, sig, b, y )
+    # Idea from https://stackoverflow.com/questions/57759563/minimize-multivariate-function-in-tensorflow
+    opt = tf.keras.optimizers.SGD()
     var_list = [ w, mu, sig, b ]
 
+    # Iterate through epochs
     for _ in range( numEpochs ):
-        opt.minimize( loss, var_list )
 
-    print ( "Final MSE:", lossFunc(x, w, mu, sig, b, y ).numpy() )
+        with tf.GradientTape() as tape:
 
-    '''
-    #init = tf.global_variables_initializer()
-    model = CustomModel()
-    
-    
-    model.compile( optimizer=opt, metrics='MSE' )
+            loss = lossFunc( x, w, mu, sig, b, y )
+            print(loss)
 
-    epochs = 100
-    history = model.fit(
+        grads = tape.gradient( loss, var_list )
+        opt.apply_gradients( zip( grads, var_list ) )
 
-        x, myVars.get( 'w' ), myVars.get( 'mu' ), myVars.get( 'sig' ), myVars.get( 'b' ), y
+    print( "Final MSE:", lossFunc( x, w, mu, sig, b, y ).numpy() )
 
-        )
+    # Calculate y from training data
+    yPred = np.zeros( len( trueX ) )
+    for i in range( len( trueX ) ):
+        yPred[i] = estY( trueX[i], w, mu, sig, b ).numpy()
 
-    predictions = model.predict(x).flatten()
-    '''
-    '''
-    with tf.GradientTape() as tape:
-        
-        yHat = []
-        for i in range( N ): 
-            yHat.append( estY( x[i], myVars.get( 'w' ), myVars.get( 'mu' ), myVars.get( 'sig' ), myVars.get( 'b' ) ) )
-
-        loss = tf.reduce_sum( lossFunc( y, yHat ) )
-        grad = tape.gradient( loss, myVars )
-        grad['b']
-    
-        
-    yModel = np.zeros( N )
-    for i in range( N ): 
-        yModel[i] = estY( x[i], myVars.get( 'w' ), myVars.get( 'mu' ), myVars.get( 'sig' ), myVars.get( 'b' ) ) 
-'''
-    yPred = np.zeros( N )
-    for i in range( N ):
-        yPred[i] = estY( x[i], w, mu, sig, b ).numpy()
-
+    # First plot
     plt.figure()
-    plt.scatter( x, y )
-    plt.scatter( x, yPred, color = 'r' )
-    plt.plot( trueX, trueY )
+    plt.scatter( x, y, color = 'g' )                        # Noisy data
+    plt.plot( trueX, yPred, color = 'r', linestyle = '-' )  # Regression manifold
+    plt.plot( trueX, trueY, color = 'b' )                   # Noiseless sinewave
     plt.xlabel('x') 
     plt.ylabel('y') 
     plt.title("Fit 1") 
     plt.show()
 
-    
+    # Second plot
     plt.figure()
     plt.rc('axes', prop_cycle=(cycler('color', ['r', 'g', 'b', 'm', 'y', 'c']) ) )
 
     for j in range( M ):
         plt.plot( trueX, gaussian( trueX, mu[j], sig[j] ) )
 
+    plt.xlabel('x') 
+    plt.ylabel('y') 
+    plt.title("Bases for Fit 1") 
     plt.show()
 
 
