@@ -19,7 +19,7 @@ y = tf.sin( 2 * np.pi * x ) + eps
 
 # Used for graphing true sinewave without noise
 trueX = np.linspace( 0, 1, 500, dtype = 'float32' )
-trueX = np.reshape( trueX, (500,1) )    # Reshapes into vector to allow broadcasting
+trueX = np.expand_dims( trueX, 1 )  # Reshapes into vector to allow broadcasting
 trueY = np.sin( 2 * np.pi * trueX )
 
 
