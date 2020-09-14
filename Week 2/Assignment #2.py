@@ -7,10 +7,11 @@ tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # Constants
 N = 200
-sigNoise = 0.1
+sigNoise = 0.3
 M = 128         # Base dimension for w
 numEpochs = 200
 learnRate = 0.1
+momentumVal = 0.6
 alpha = 0.001   # Penalty term for L2 Regularization
 
 # Parameters for Spirals
@@ -84,6 +85,7 @@ class logClassMod( tf.Module ):
 
             tempX = tempX @ self.weights[i] + self.biases[i]
 
+            # Applies eLU to every layer except for the last, which applies sigmoid
             if i != len( self.weights ) - 1:
                 tempX = self.elu( tempX )
             else:
@@ -107,7 +109,7 @@ class logClassMod( tf.Module ):
     def train( self ):
         
         # Stochastic Gradient Descent
-        opt = tf.keras.optimizers.SGD( learning_rate = learnRate )
+        opt = tf.keras.optimizers.SGD( learning_rate = learnRate, momentum = momentumVal )
         
         # Binary Cross Entropy
         bce = tf.keras.losses.BinaryCrossentropy()
@@ -150,7 +152,7 @@ class logClassMod( tf.Module ):
 
         # Plot boundary
         plt.figure()
-        conPlot = plt.contourf( xTrue, yTrue, np.reshape( trueOutput, xTrue.shape ), levels = [ 0.45, 0.55 ] )
+        conPlot = plt.contourf( xTrue, yTrue, np.reshape( trueOutput, xTrue.shape ), levels = [ 0.5, 1 ] )
         plt.colorbar( conPlot )
 
         # Plot spirals
