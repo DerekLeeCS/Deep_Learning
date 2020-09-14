@@ -19,14 +19,14 @@ y = tf.sin( 2 * np.pi * x ) + eps
 
 # Used for graphing true sinewave without noise
 trueX = np.linspace( 0, 1, 500, dtype = 'float32' )
-trueX = np.expand_dims( trueX, 1 )  # Reshapes into vector to allow broadcasting
+trueX = trueX[ :, np.newaxis ]  # Reshapes into vector to allow broadcasting
 trueY = np.sin( 2 * np.pi * trueX )
 
 
 # Module containing Linear Regression model
 class linRegMod( tf.Module ):
 
-    def __init__(self):
+    def __init__( self ):
 
         # Trainable Tensorflow variables
         self.w = tf.Variable( tf.random.uniform( [M], -0.5, 0.5 ), name = 'w' )
@@ -95,7 +95,6 @@ class linRegMod( tf.Module ):
 
         # Plot each Gaussian
         plt.plot( trueX, self.gaussian( trueX ) )
-
         plt.xlabel( 'x' ) 
         plt.ylabel( 'y', rotation = 0 ) 
         plt.title( "Bases for Fit 1" ) 
