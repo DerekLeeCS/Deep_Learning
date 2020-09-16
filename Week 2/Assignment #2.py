@@ -43,9 +43,8 @@ trainInput = train[ :, :-1 ]
 trainOutput = train[ :, -1, np.newaxis ]
 
 
-# Weight initialization inspired by: 
+# Glorot initialization inspired by: 
 # https://stats.stackexchange.com/questions/47590/what-are-good-initial-weights-in-a-neural-network
-#   Used Glorot initialization, except with normal rather than uniform distribution
 wInputs = np.array( [ 2, M, M//4, M//16 ] )
 wOutputs = np.array( [ wInputs[1], wInputs[2], wInputs[3],  1 ] )
 wInputs = wInputs[ :, np.newaxis ]
