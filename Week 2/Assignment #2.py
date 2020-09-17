@@ -7,11 +7,11 @@ tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # Constants
 N = 200
-sigNoise = 0.3
+sigNoise = 0.2
 M = 128         # Base dimension for w
 numEpochs = 200
 learnRate = 0.1
-momentumVal = 0.6
+momentumVal = 0.7
 alpha = 0.001   # Penalty term for L2 Regularization
 
 # Parameters for Spirals
@@ -50,7 +50,10 @@ wOutputs = np.array( [ wInputs[1], wInputs[2], wInputs[3],  1 ] )
 wInputs = wInputs[ :, np.newaxis ]
 wOutputs = wOutputs[ :, np.newaxis ]
 r = 2 * np.sqrt( 6 / ( wInputs + wOutputs ) )
-bRanges = np.array( [ 1, 1, 1, 1, 1 ] )
+numLayers = len( wInputs )
+bVariance = np.ones( [ numLayers, 1 ] )
+bMean = -1 * np.ones( [ numLayers, 1 ] )
+
 
 
 # Module containing Logistic Classification model
@@ -59,18 +62,13 @@ class logClassMod( tf.Module ):
     def __init__( self ):
 
         # Trainable Tensorflow variables
-        self.w0 = tf.Variable( tf.random.uniform( [ wInputs[0][0], wOutputs[0][0] ], -r[0], r[0] ) )
-        self.w1 = tf.Variable( tf.random.uniform( [ wInputs[1][0], wOutputs[1][0] ], -r[1], r[1] ) )
-        self.w2 = tf.Variable( tf.random.uniform( [ wInputs[2][0], wOutputs[2][0] ], -r[2], r[2] ) )
-        self.w3 = tf.Variable( tf.random.uniform( [ wInputs[3][0], wOutputs[3][0] ], -r[3], r[3] ) )
+        self.weights = []
+        for i in range( numLayers ):
+            self.weights.append( tf.Variable( tf.random.uniform( [ wInputs[i][0], wOutputs[i][0] ], -r[i], r[i] ) ) )
 
-        self.b0 = tf.Variable( tf.random.normal( [ wOutputs[0][0] ], -bRanges[0], bRanges[0] ) )
-        self.b1 = tf.Variable( tf.random.normal( [ wOutputs[1][0] ], -bRanges[1], bRanges[1] ) )
-        self.b2 = tf.Variable( tf.random.normal( [ wOutputs[2][0] ], -bRanges[2], bRanges[2] ) )
-        self.b3 = tf.Variable( tf.random.normal( [ wOutputs[3][0] ], -bRanges[3], bRanges[3] ) )
-
-        self.weights = [ self.w0, self.w1, self.w2, self.w3 ]
-        self.biases  = [ self.b0, self.b1, self.b2, self.b3 ]
+        self.biases = []
+        for i in range( numLayers ):
+            self.biases.append( tf.Variable( tf.random.normal( [ wOutputs[i][0] ], bMean[i], bVariance[i] ) ) )
 
 
     # Calculates yHat given x
@@ -80,12 +78,12 @@ class logClassMod( tf.Module ):
 
         tempX = x
         
-        for i in range( len( self.weights ) ):
+        for i in range( numLayers ):
 
             tempX = tempX @ self.weights[i] + self.biases[i]
 
             # Applies eLU to every layer except for the last, which applies sigmoid
-            if i != len( self.weights ) - 1:
+            if i != numLayers - 1:
                 tempX = self.elu( tempX )
             else:
                 return self.sigmoid( tempX )
