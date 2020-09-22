@@ -4,7 +4,6 @@ import tensorflow as tf
 import kerastuner as kt
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
-import os
 
 
 # Constants
@@ -52,58 +51,64 @@ def labelRead( fileName ):
 
     return labels
 
-def model_builder( hp ):
 
-    model = tf.keras.models.Sequential()
+# Module containing Image Classification model
+class imgClassMod( tf.Module ):
 
-    # Input Layer
-    model.add( tf.keras.layers.Flatten( input_shape = IMG_DIMS ) )
+    def __init__( self ):
 
-    # Hidden Layers
-    for numNeurons in HIDDEN_SIZE:
-        model.add( tf.keras.layers.Dense( numNeurons, activation = 'relu', kernel_regularizer = 'l2' ) )
-        model.add( tf.keras.layers.Dropout( hp.Choice( 'rate', values = [ 0.3, 0.25, 0.2 ] ), trainable = False ) )
+        self.model = tf.keras.models.Sequential()
 
-    # Output Layer
-    model.add( tf.keras.layers.Dense( NUM_CLASSES, activation = 'softmax' ) )
+        # Input Layer
+        self.model.add( tf.keras.layers.Flatten( input_shape = IMG_DIMS ) )
 
-    # Compile model
-    optimizer = tf.keras.optimizers.SGD( 
-                        hp.Choice( 'learning_rate', values = [ 0.01, 0.005 ] ) )
-    model.compile( loss = "sparse_categorical_crossentropy", 
-                        optimizer = optimizer, metrics = "accuracy" )
+        # Hidden Layers
+        for numNeurons in HIDDEN_SIZE:
+            self.model.add( tf.keras.layers.Dense( numNeurons, activation = 'relu', kernel_regularizer = 'l2' ) )
+            self.model.add( tf.keras.layers.Dropout( rate = DROP_RATE, trainable = False ) )
 
-    return model
+        # Output Layer
+        self.model.add( tf.keras.layers.Dense( NUM_CLASSES, activation = 'softmax' ) )
+        
+
+    def train( self, trainImg, trainLabel ):
+
+        self.model.compile( loss = "sparse_categorical_crossentropy", 
+                            optimizer = "sgd", metrics = "accuracy" )
+        self.history = self.model.fit( trainImg, trainLabel, epochs = NUM_EPOCHS, 
+                    validation_split = VALIDATION_PERCENTAGE )
+
+
+    def test( self, testImg, testLabel ):
+
+        self.model.evaluate( testImg, testLabel )
 
     
-def plotAccuracy( history ):
+    def plotAccuracy( self ):
 
-    # Plots accuracy over time
-    plt.figure( figsize = (10,5) )
-    plt.plot( history.history['accuracy'] )
-    plt.plot( history.history['val_accuracy'] )
-    plt.title( 'Model Accuracy' )
-    plt.xlabel( 'Epochs' )
-    plt.ylabel( 'Accuracy', rotation = 'horizontal', ha = 'right' )
-    plt.legend( [ 'Train', 'Valid' ], loc = 'upper left' )
-    plt.show()
+        # Plots accuracy over time
+        plt.figure( figsize = (10,5) )
+        plt.plot( self.history.history['accuracy'] )
+        plt.plot( self.history.history['val_accuracy'] )
+        plt.title( 'Model Accuracy' )
+        plt.xlabel( 'Epochs' )
+        plt.ylabel( 'Accuracy', rotation = 'horizontal', ha = 'right' )
+        plt.legend( [ 'Train', 'Valid' ], loc = 'upper left' )
+        plt.show()
+
 
 
 def main():
 
     # Load data
-    img = imgRead( 'trainImages.idx3-ubyte' )
-    label = labelRead( 'trainLabels.idx1-ubyte' )
+    trainImg = imgRead( 'trainImages.idx3-ubyte' )
+    trainLabel = labelRead( 'trainLabels.idx1-ubyte' )
     testImg = imgRead( 'testImages.idx3-ubyte' )
     testLabel = labelRead( 'testLabels.idx1-ubyte' )
 
-    trainImg, validImg, trainLabel, validLabel = train_test_split( img, label, test_size = 0.2 )
-    
     # Normalize and convert to tensor
     trainImg = tf.convert_to_tensor( trainImg / 255, dtype=tf.float32 )
     trainLabel = tf.convert_to_tensor( trainLabel )
-    validImg = tf.convert_to_tensor( validImg / 255, dtype=tf.float32 )
-    validLabel = tf.convert_to_tensor( validLabel )
     testImg = tf.convert_to_tensor( testImg / 255, dtype=tf.float32 )
     testLabel = tf.convert_to_tensor( testLabel )
 
@@ -115,37 +120,16 @@ def main():
     # Test if labels were properly loaded
     print( trainLabel[0] )
 
-    # Initialize model
-    tuner = kt.Hyperband( 
-
-        model_builder,
-        objective = "val_accuracy",
-        max_epochs = 10,
-        directory = os.path.normpath( 'D:/' ),
-        project_name = 'tunedParams' 
-
-    )
-
-    tuner.search(
-
-        trainImg, trainLabel, epochs = 10, 
-        validation_data = (validImg, validLabel)
-        
-    )
-
-    best_hps = tuner.get_best_hyperparameters( num_trials = 2 )[0]
+    classifier = imgClassMod()
 
     # Train and Test
     print( "\nStarted Training\n" )
-    classifier = tuner.hypermodel.build( best_hps )
-    history = classifier.fit( 
-                        trainImg, trainLabel, epochs = NUM_EPOCHS, 
-                        validation_data = ( validImg, validLabel ) )
+    classifier.train( trainImg, trainLabel )
     print( "\nFinished Training\n" )
-    classifier.evaluate( testImg, testLabel )
+    classifier.test( testImg, testLabel )
 
     # Display accuracy
-    plotAccuracy( history )
+    classifier.plotAccuracy()
 
 
 main()
