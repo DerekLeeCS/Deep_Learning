@@ -1,13 +1,11 @@
-import struct as st
 import numpy as np
 import tensorflow as tf
-import kerastuner as kt
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import os
 import pickle
 
-C10 = True     # If true, training on CIFAR10; Otherwise, training on CIFAR100
+C10 = False     # If true, training on CIFAR10; Otherwise, training on CIFAR100
 
 # From:
 # https://www.tensorflow.org/guide/gpu#limiting_gpu_memory_growth
