@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import os
 import pickle
 
-C10 = False     # If true, training on CIFAR10; Otherwise, training on CIFAR100
 C10 = True     # If true, training on CIFAR10; Otherwise, training on CIFAR100
 
 # From:
@@ -307,12 +306,12 @@ class imgClassMod( tf.Module ):
         self.model.add( tf.keras.layers.Dense( NUM_CLASSES, activation = 'softmax', kernel_initializer = 'he_normal' ) )
 
 
-    def train( self, train, valid, trainSteps, validSteps ):
     def train( self, dataGenTrain, trainImg, trainLabel, validImg, validLabel ):
 
         self.lrdecay = tf.keras.callbacks.LearningRateScheduler(lrdecay) # Learning rate decay  
         self.model.compile( loss = tf.keras.losses.SparseCategoricalCrossentropy(), 
                             optimizer = OPTIMIZER, metrics = METRIC )
+
         trainSteps = trainImg.shape[0] / BATCH_SIZE
         validSteps = validImg.shape[0] / BATCH_SIZE
 
