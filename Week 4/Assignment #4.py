@@ -6,6 +6,7 @@ import os
 import pickle
 
 C10 = False     # If true, training on CIFAR10; Otherwise, training on CIFAR100
+C10 = True     # If true, training on CIFAR10; Otherwise, training on CIFAR100
 
 # From:
 # https://www.tensorflow.org/guide/gpu#limiting_gpu_memory_growth
@@ -307,13 +308,17 @@ class imgClassMod( tf.Module ):
 
 
     def train( self, train, valid, trainSteps, validSteps ):
+    def train( self, dataGenTrain, trainImg, trainLabel, validImg, validLabel ):
 
         self.lrdecay = tf.keras.callbacks.LearningRateScheduler(lrdecay) # Learning rate decay  
         self.model.compile( loss = tf.keras.losses.SparseCategoricalCrossentropy(), 
                             optimizer = OPTIMIZER, metrics = METRIC )
-        self.history = self.model.fit( train, epochs = NUM_EPOCHS, 
+        trainSteps = trainImg.shape[0] / BATCH_SIZE
+        validSteps = validImg.shape[0] / BATCH_SIZE
+
+        self.history = self.model.fit( dataGenTrain.flow( trainImg, trainLabel, batch_size = BATCH_SIZE ), epochs = NUM_EPOCHS, 
                     steps_per_epoch = trainSteps, validation_steps = validSteps,
-                    validation_data = valid, batch_size = BATCH_SIZE, callbacks = [ self.lrdecay ] )
+                    validation_data = ( validImg, validLabel ), callbacks = [ self.lrdecay ] )
 
 
     def test( self, testImg, testLabel ):
@@ -353,28 +358,33 @@ def main():
     img = np.reshape( img, [ -1, 32, 32, 3 ], order = 'F' )
     testImg = np.reshape( testImg, [ -1, 32, 32, 3 ], order = 'F' )
 
+    # Mean-STD normalization from:
+    # https://appliedmachinelearning.blog/2018/03/24/achieving-90-accuracy-in-object-recognition-task-on-cifar-10-dataset-with-keras-convolutional-neural-networks
+    mean = np.mean( img, axis=(0,1,2,3) )
+    std = np.std( img, axis=(0,1,2,3) )
+    img = np.array( (img-mean) / (std+1e-7) )
+    testImg = np.array( (testImg-mean) / (std+1e-7) )
+
     # Train / Valid Split
     trainImg, validImg, trainLabel, validLabel = train_test_split( img, label, test_size = VALID_SIZE )
 
     # Rotate, normalize, and convert to tensor
-    trainImg = tf.convert_to_tensor( tf.image.rot90( trainImg, k=3 ) / 255, dtype=tf.float32 )
+    trainImg = tf.convert_to_tensor( trainImg, dtype=tf.float32 )
     trainLabel = tf.convert_to_tensor( trainLabel )
-    validImg = tf.convert_to_tensor( tf.image.rot90( validImg, k=3 ) / 255, dtype=tf.float32 )
+    validImg = tf.convert_to_tensor( validImg, dtype=tf.float32 )
     validLabel = tf.convert_to_tensor( validLabel )
-    testImg = tf.convert_to_tensor( tf.image.rot90( testImg, k=3 ) / 255, dtype=tf.float32 )
+    testImg = tf.convert_to_tensor( testImg, dtype=tf.float32 )
     testLabel = tf.convert_to_tensor( testLabel )
-    
+
     # Check if image was loaded properly
     #testLoad( trainImg, trainLabel )
 
     # Data Augmentation
-    dataGenTrain = tf.keras.preprocessing.image.ImageDataGenerator(zoom_range=0.2, width_shift_range=0.15, height_shift_range = 0.15, horizontal_flip=True) 
-    dataGenValid = tf.keras.preprocessing.image.ImageDataGenerator()
-    trainSet = dataGenTrain.flow(trainImg, trainLabel, batch_size = BATCH_SIZE)
-    validSet = dataGenValid.flow(validImg, validLabel, batch_size = BATCH_SIZE)
+    dataGenTrain = tf.keras.preprocessing.image.ImageDataGenerator(rotation_range=15, width_shift_range=0.1, height_shift_range = 0.1, horizontal_flip=True)
+    dataGenTrain.fit( trainImg )
     
     model = imgClassMod()
-    model.train( trainSet, validSet, trainImg.shape[0] / BATCH_SIZE, validImg.shape[0] / BATCH_SIZE )
+    model.train( dataGenTrain, trainImg, trainLabel, validImg, validLabel )
     model.test( testImg, testLabel )
     model.plotAccuracy()
     
