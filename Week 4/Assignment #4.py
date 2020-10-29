@@ -379,7 +379,7 @@ def main():
     #testLoad( trainImg, trainLabel )
 
     # Data Augmentation
-    dataGenTrain = tf.keras.preprocessing.image.ImageDataGenerator(rotation_range=15, width_shift_range=0.1, height_shift_range = 0.1, horizontal_flip=True)
+    dataGenTrain = tf.keras.preprocessing.image.ImageDataGenerator( rotation_range=15, width_shift_range=0.1, height_shift_range = 0.1, horizontal_flip=True )
     dataGenTrain.fit( trainImg )
     
     model = imgClassMod()
