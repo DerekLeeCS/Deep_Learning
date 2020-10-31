@@ -16,8 +16,8 @@ MASKING = False
 # Use Adaptive Label Smoothing
     # 0 = Hard Label
     # 1 = Full ALS 
-ALS = True        
-BETA = 0.75     
+ALS = False        
+BETA = 0     
 
 # Train or Test
 train = False
@@ -120,8 +120,8 @@ def testLoad( data, info ):
         plt.yticks([])
         plt.grid( False )
         plt.imshow( image )
-        #label = info.features["label"].int2str(label)
-        #plt.xlabel( label )
+        label = info.features["label"].int2str(label)
+        plt.xlabel( label )
         i += 1
 
     plt.show()
@@ -150,8 +150,7 @@ class identityBlock( tf.keras.Model ):
 
 
     def call( self, inputTensor, training = False ):        
-        
-        x = inputTensor
+                x = inputTensor
 
         # Block 1
         x = self.bn2a( x, training = training )
@@ -283,9 +282,10 @@ class imgClassMod( tf.Module ):
                     validation_data = ( validImg, validLabel ), callbacks = [ self.lrdecay, cp_callback ] )
 
 
-    def test( self, testImg ):
+    def test( self, testImg, testLabel ):
 
-        return self.model.predict( trainImg )
+        self.model.evaluate( testImg, testLabel )
+        return self.model.predict( testImg )
 
 
     def load( self, pathName ):
@@ -338,53 +338,94 @@ def augment( image, label, mask ):
 # http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.720.9822
 def uncertainty( label ):
 
+    # Ensure not taking log of 0
+    assert( np.min( labelProbs > 0 ) ) 
     temp = label * tf.math.log( label ) / tf.math.log( tf.convert_to_tensor( NUM_CLASSES, dtype=tf.float32 ) ) # Convert to log base NUM_CLASSES
     return -tf.reduce_sum( temp, axis=-1 )  # Sum for each example
 
 
-def calcConf( labelProbs, labelTruth ):
+def calcConf( labelPreds, labelTruthSparse, ind, labelProbs, labelTruth ):
 
     numEx = tf.shape( labelProbs )[0]
 
-    labelPreds = tf.math.argmax( labelProbs, axis=-1 )          # Gets sparse prediction for each example
-    labelTruthSparse = tf.math.argmax( labelTruth, axis=-1 )    # Gets sparse label for each example
-    
-    indFunc = labelPreds.numpy() & labelTruthSparse.numpy()
-    K_c = tf.cast( tf.reduce_sum( indFunc ), tf.int32 )         # Gets number of correct predictions 
+    K_c = tf.cast( tf.reduce_sum( ind ), tf.int32 )         # Gets number of correct predictions 
     K_f = numEx - K_c
-    
-    # Ensure not taking log of 0
-    assert( np.min( labelProbs ) > 0 ) 
-
 
     h = uncertainty( labelProbs )
-    confCorrect = indFunc * h
-    confIncorrect = ( 1-indFunc ) * ( 1-h )
+    confCorrect = ind * h
+    confIncorrect = ( 1-ind ) * ( 1-h )
     underConf = tf.cast( 1 / K_c, tf.float32 ) * tf.reduce_sum( confCorrect )
     overConf = tf.cast( 1 / K_f, tf.float32 ) * tf.reduce_sum( confIncorrect )
 
     return underConf, overConf
 
 
-def calcECE( labelProbs, labelTruth, binSize ):
+# ECE and MCE based on:
+# https://arxiv.org/pdf/1706.04599.pdf and
+# http://people.cs.pitt.edu/~milos/research/AAAI_Calibration.pdf
+def calcCE( labelPreds, labelTruthSparse, ind, labelProbs, labelTruth, binSize ):
+
+    numEx = tf.shape( labelProbs )[0]
+
+    # Split into bins
+    unevenSize = numEx.numpy() % binSize    # Get the leftover bin
+    labelProbs, unevenProbs = tf.split( labelProbs, [ numEx-unevenSize, unevenSize ] )
+    ind, unevenInd = tf.split( ind, [ numEx-unevenSize, unevenSize ] )
+    splitProbs = tf.split( labelProbs, binSize )
+    splitAcc = tf.split( ind, binSize )
+
+    # For easier computation (list -> tensor)
+    splitProbs = tf.transpose( splitProbs, [1,0,2] )
+    splitAcc = tf.transpose( splitAcc )
+
+    # Uneven calculations
+    unevenAcc = tf.reduce_sum( unevenInd, axis=-1 ) / unevenSize                        # Gets number of correct predictions 
+    unevenConf = tf.reduce_sum( tf.math.reduce_max( unevenProbs, axis=-1 ), axis=-1 )   # Gets max probability
+    unevenConf = unevenConf / unevenSize
+
+    # Bin calculations
+    binAcc = tf.reduce_sum( splitAcc, axis=-1 ) / binSize                           # Gets number of correct predictions 
+    binConf = tf.reduce_sum( tf.math.reduce_max( splitProbs, axis=-1 ), axis=-1 )   # Gets max probability
+    binConf = binConf / binSize
+
+    unevenDiff = abs( unevenAcc - unevenConf )
+    binDiff = abs( binAcc - binConf )
+
+    ECE = ( tf.reduce_sum( unevenDiff*unevenSize ) + tf.reduce_sum( binDiff*binSize, axis=-1 ) ) / tf.cast( numEx, tf.float32 )
+    MCE = max( tf.reduce_max( unevenDiff ), tf.reduce_max( binDiff ) )
+
+    return ECE, MCE
+
+
+def calcStats( labelProbs, labelTruth ):
 
     labelPreds = tf.math.argmax( labelProbs, axis=-1 )          # Gets sparse prediction for each example
     labelTruthSparse = tf.math.argmax( labelTruth, axis=-1 )    # Gets sparse label for each example
+    ind = ( labelPreds.numpy() == labelTruthSparse.numpy() )    # Get number of correct labels
+    ind = tf.cast( ind, tf.float32 )
 
+    underConf, overConf = calcConf( labelPreds, labelTruthSparse, ind, labelProbs, labelTruth )
+    ECE15, MCE = calcCE( labelPreds, labelTruthSparse, ind, labelProbs, labelTruth, 15 )
+    ECE100, _ = calcCE( labelPreds, labelTruthSparse, ind, labelProbs, labelTruth, 100 )
 
+    # Display results
+    print( "O.Conf: ", overConf )
+    print( "U.Conf: ", underConf )
+    print( "ECE15: ", ECE15 )
+    print( "ECE100: ", ECE100 )
+    print( "MCE: ", MCE )
 
-
+    return ECE15, ECE100, MCE
 
 
 if __name__ == "__main__":
 
     # Load data
     (dsTrain, dsValid), info = tfds.load( 'oxford_iiit_pet', split=[ 'train', 'test' ], with_info=True )
-
+ 
     # Test images
-    #testLoad( train, info )
-    #testLoad( valid, info )
-    #testLoad( test, info )
+    #testLoad( dsTrain, info )
+    #testLoad( dsValid, info )
 
     # Load data into a dictionary
     trainDict = { 'image': [], 'label': [], 'mask': [] }
@@ -455,8 +496,6 @@ if __name__ == "__main__":
     validImg = tf.stack( validDict[ 'image' ], axis=0 )
     validLabel = np.hstack( validDict[ 'label' ] )
 
-    print( tf.shape( trainImg ) )
-    print( tf.shape( trainLabel ) )
     mask = trainDict[ 'mask' ]
 
     # Clear memory
@@ -488,11 +527,11 @@ if __name__ == "__main__":
 
     # Test images
     for i in range(25):
+
         plt.subplot( 5, 5, i+1 )
         plt.imshow( trainImg[i] )
+
     plt.show()
-    # testLoad( zip( trainImg, trainLabel ), info )
-    # testLoad( zip( validImg, validLabel ), info )
 
     # Convert to tensor
     trainImg = tf.convert_to_tensor( trainImg, dtype=tf.float32 )
@@ -503,7 +542,6 @@ if __name__ == "__main__":
     # Image Data Generator
     dataGenTrain = tf.keras.preprocessing.image.ImageDataGenerator( rotation_range=15, width_shift_range=0.2, height_shift_range=0.2, horizontal_flip=True )
     dataGenTrain.fit( trainImg )
-    print( trainLabel[0])
 
     # Ensure all values are normalized
     assert all( np.max(x) <= 1 for x in trainImg )
@@ -518,20 +556,13 @@ if __name__ == "__main__":
 
     if test:
 
-        pathName = os.path.dirname( os.getcwd() ) + "\\"
-        pathName += "ALS (0.75)"
+        pathName = os.getcwd() + "\\Checkpoints\\"
+        pathName += "Baseline"
         pathName += "\\cp-0200.ckpt"
         print(pathName)
         model.load( pathName )
 
-        # Calculate confidence
-        labelProbs = tf.convert_to_tensor( model.test( validImg ) )
-        underConf, overConf = calcConf( labelProbs, validLabel )
+        labelProbs = tf.convert_to_tensor( model.test( validImg, validLabel ) )
 
-        # Display results
-        print( "O.Conf: ", end="" )
-        print( overConf )
-        print( "U.Conf: ", end="" )
-        print( underConf )
-
-    
+        # Calculate metrics
+        calcStats( labelProbs, validLabel )
