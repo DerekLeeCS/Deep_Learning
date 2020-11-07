@@ -8,3 +8,8 @@ Midterm/annotations
 Midterm/images
 Midterm/Checkpoints
 Final/ideas.txt
+Final/val
+Final/annotations
+Final/cocoapi-master
+Final/__pycache__
+*.zip
