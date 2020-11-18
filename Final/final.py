@@ -1,7 +1,10 @@
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import tensorflow_hub as hub
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import skimage.io as io
 import os
 
 
@@ -22,43 +25,17 @@ if gpus:
 
 
 # Constants
-NUM_EPOCHS = 200
 BATCH_SIZE = 16
-LEARN_RATE = 0.001
-IMG_SIZE = 100
+IMG_SIZE = [ 224, 224 ]
 
-# Training
-NUM_CLASSES = 80
-OPTIMIZER = tf.keras.optimizers.SGD( learning_rate = LEARN_RATE, momentum = 0.9 )
-REGULARIZER = tf.keras.regularizers.l2( 0.01 )
-LOSS = tf.keras.losses.CategoricalCrossentropy( from_logits = False )
-METRIC = tf.keras.metrics.CategoricalAccuracy()
+# IMG_DIMS is [ None, IMG_SIZE, 3 ]
+IMG_DIMS = [ None ]
+IMG_DIMS.extend( IMG_SIZE )
+IMG_DIMS.extend( [3] )
 
-checkpoint_path = os.getcwd() + "training/cp-{epoch:04d}.ckpt"
-checkpoint_dir = os.path.dirname(checkpoint_path)
-
-
-# Create a callback that saves the model's weights from:
-# https://www.tensorflow.org/tutorials/keras/save_and_load
-cp_callback = tf.keras.callbacks.ModelCheckpoint(
-    filepath=checkpoint_path, 
-    verbose=1, 
-    save_weights_only=True,
-    period=20)  # Saves every 10 epochs
-
-
-# Decreases learning rate at specific epochs
-def lrdecay(epoch):
-
-    lr = LEARN_RATE
-    if epoch > 150:
-        lr *= 1e-3
-    elif epoch > 100:
-        lr *= 1e-2
-    elif epoch > 50:
-        lr *= 1e-1
-
-    return lr
+# Location of TFRecords
+recPath = 'records'
+recName = 'ImageNet'
 
 
 # Display some plots
@@ -82,7 +59,95 @@ def testLoad( data, info ):
     plt.show()
 
 
+# Read TFRecord file from:
+# https://stackoverflow.com/questions/47861084/how-to-store-numpy-arrays-as-tfrecord
+def _parse_tfr_element(element):
+
+    parse_dic = {
+            'image': tf.io.FixedLenFeature([], tf.string), # Note that it is tf.string, not tf.float32
+            'label': tf.io.FixedLenFeature([], tf.string),
+            'bbox': tf.io.FixedLenFeature([], tf.string),
+    }
+    example_message = tf.io.parse_single_example(element, parse_dic)
+
+    b_image = example_message['image'] # get byte string
+    b_bbox = example_message['bbox']
+    b_label = example_message['label']
+    
+    img = tf.io.parse_tensor(b_image, out_type=tf.uint8) # restore 2D array from byte string
+    bbox = tf.io.parse_tensor(b_bbox, out_type=tf.int32)
+    label = tf.io.parse_tensor(b_label, out_type=tf.string)
+    label = int(label)
+
+    return img, label, bbox
+
+
+def normalize_img(image, label, bbox):
+    """Normalizes images: `uint8` -> `float32`."""
+    return tf.cast(image, tf.float32) / 255, label, bbox
+
+
+# Python function to manipulate dataset
+def map_func(image, label, bbox ):
+    """ Scales images to IMG_SIZE.
+        Removes bounding box element of dataset."""
+    image = tf.image.resize( image, [ 224, 224 ] )
+    return image, label
+
+
 if __name__ == "__main__":
     
     # Load data
-    a=1
+    filename = [ os.path.join(recPath, recName + '-' + '1' + '.tfrecords'), 
+            os.path.join(recPath, recName + '-' + '2' + '.tfrecords') ]
+    tfr_dataset = tf.data.TFRecordDataset(filename) 
+    dataset = tfr_dataset.map(_parse_tfr_element)
+
+    print("\n\n\n\n")
+    print( dataset.element_spec )
+
+    # Map dataset
+    ds = dataset.map(
+        normalize_img, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    print( ds.element_spec )
+
+    # Map using tf.py_function
+    ds = ds.map( lambda image, label, bbox: tf.py_function(func=map_func,
+          inp=[image, label, bbox], Tout=[tf.float32,tf.int32]) )
+
+    for img, label in ds.take(3):
+        
+        fig, ax = plt.subplots()
+        print( tf.shape( img ) )
+        print( label )
+        ax.imshow( img )
+        plt.show()
+
+    # Load pre-trained model
+    model = tf.keras.Sequential([
+        hub.KerasLayer("https://tfhub.dev/google/imagenet/inception_v1/classification/4")
+    ])
+    model.build( IMG_DIMS )  # Batch input shape
+    model.summary()
+
+    model.compile()
+
+    # Test the model
+    ds = ds.batch(128).cache().prefetch(tf.data.experimental.AUTOTUNE)
+    result = model.evaluate(ds)
+    #model.load_weights( ckptName )
+
+    # dataDir = 'images'
+    # fileName = 'ILSVRC2012_val_00000002.JPEG'
+    # I = io.imread( '%s/%s'%(dataDir,fileName) )
+    # I = tf.convert_to_tensor(I)
+    # I /= 255
+    # print(I)
+    # I = tf.image.resize( I, [ 224, 224 ] )
+    # plt.imshow(I)
+    # plt.show()
+    # I = np.expand_dims( I, axis=0 )
+    # print(tf.shape(I))
+    # x = model.predict( I )
+    # print(x)
+    # print(tf.math.top_k(x, k=5))
