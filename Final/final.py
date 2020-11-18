@@ -26,7 +26,7 @@ if gpus:
 
 # Constants
 BATCH_SIZE = 16
-IMG_SIZE = [ 224, 224 ]
+IMG_SIZE = [ 227, 227 ]
 
 # IMG_DIMS is [ None, IMG_SIZE, 3 ]
 IMG_DIMS = [ None ]
@@ -82,16 +82,29 @@ def _parse_tfr_element(element):
     return img, label, bbox
 
 
-def normalize_img(image, label, bbox):
+def normalize_img( image, label, bbox ):
     """Normalizes images: `uint8` -> `float32`."""
     return tf.cast(image, tf.float32) / 255, label, bbox
 
 
 # Python function to manipulate dataset
-def map_func(image, label, bbox ):
+def map_func( image, label, bbox ):
     """ Scales images to IMG_SIZE.
         Removes bounding box element of dataset."""
-    image = tf.image.resize( image, [ 224, 224 ] )
+
+    # Deal with grayscale images
+    if len( tf.shape(image) ) == 2:
+        image = np.expand_dims( image, axis=-1 )
+        image = tf.concat( [image, image, image], axis=-1 )
+
+    image = tf.image.resize( image, IMG_SIZE )
+
+    return image, label
+
+def ensureShape( image, label ):
+
+    image = tf.ensure_shape( image, [227, 227, 3] )
+
     return image, label
 
 
@@ -111,17 +124,36 @@ if __name__ == "__main__":
         normalize_img, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     print( ds.element_spec )
 
-    # Map using tf.py_function
-    ds = ds.map( lambda image, label, bbox: tf.py_function(func=map_func,
-          inp=[image, label, bbox], Tout=[tf.float32,tf.int32]) )
+    # i=0
+    # for img, label, _ in ds:
 
-    for img, label in ds.take(3):
+    #     i+=1
+    #     if len(tf.shape( img )) != 3:
+    #         print( i, ": ", tf.shape(img) )
+    #         plt.imshow(img)
+    #         plt.show()
+    #         i=0
+
+    # # Map using tf.py_function
+    ds = ds.map( lambda image, label, bbox: tf.py_function(func=map_func,
+          inp=[image, label, bbox], Tout=[tf.float32, tf.int32]) )
+
+    # Set (previously known) shapes of images
+    ds = ds.map( 
+        ensureShape, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+
+
+
+    print( ds.element_spec )
+
+    # for img, label in ds.take(3):
         
-        fig, ax = plt.subplots()
-        print( tf.shape( img ) )
-        print( label )
-        ax.imshow( img )
-        plt.show()
+    #     fig, ax = plt.subplots()
+    #     print( tf.shape( img ) )
+    #     print( label )
+    #     ax.imshow( img )
+    #     plt.show()
 
     # Load pre-trained model
     model = tf.keras.Sequential([
@@ -130,12 +162,16 @@ if __name__ == "__main__":
     model.build( IMG_DIMS )  # Batch input shape
     model.summary()
 
-    model.compile()
-
     # Test the model
-    ds = ds.batch(128).cache().prefetch(tf.data.experimental.AUTOTUNE)
-    result = model.evaluate(ds)
-    #model.load_weights( ckptName )
+    ds = ds.cache().batch(128).prefetch(tf.data.experimental.AUTOTUNE)
+    logits = model.predict(ds)
+    print( tf.shape(logits) )
+    
+    # for img, label in ds.take(1):
+
+    #     print( tf.shape( img ))
+    #     result = model.predict( img )
+    #     print( result )
 
     # dataDir = 'images'
     # fileName = 'ILSVRC2012_val_00000002.JPEG'
