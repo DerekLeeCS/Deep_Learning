@@ -5,6 +5,7 @@ import tensorflow_hub as hub
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import skimage.io as io
+import pickle
 import os
 
 
@@ -25,8 +26,8 @@ if gpus:
 
 
 # Constants
-BATCH_SIZE = 16
 IMG_SIZE = [ 227, 227 ]
+kVal = 5    # Top 5
 
 # IMG_DIMS is [ None, IMG_SIZE, 3 ]
 IMG_DIMS = [ None ]
@@ -101,6 +102,8 @@ def map_func( image, label, bbox ):
 
     return image, label
 
+
+# Function to define shape of tfds
 def ensureShape( image, label ):
 
     image = tf.ensure_shape( image, [227, 227, 3] )
@@ -108,6 +111,18 @@ def ensureShape( image, label ):
     return image, label
 
 
+def calcAcc( probs, truth, k ):
+
+    numEx = tf.shape( probs )[0]
+
+    correctBools = tf.math.in_top_k( truth[ np.arange( 0,numEx ) ], probs, 5 )
+    numCorrect = tf.math.reduce_sum( tf.cast( correctBools, tf.float32 ) )
+    print( numCorrect )
+    print( numCorrect / tf.cast( numEx, tf.float32 ) )
+
+    return
+    
+    
 if __name__ == "__main__":
     
     # Load data
@@ -142,9 +157,6 @@ if __name__ == "__main__":
     ds = ds.map( 
         ensureShape, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-
-
-
     print( ds.element_spec )
 
     # for img, label in ds.take(3):
@@ -155,17 +167,43 @@ if __name__ == "__main__":
     #     ax.imshow( img )
     #     plt.show()
 
+    # Load mappings from a file
+    with open('INToTf.pkl', 'rb') as f: 
+        data = f.read() 
+        INToTf = pickle.loads(data) 
+
+    # Load ground truth labels from a file
+    with open('truth.pkl', 'rb') as f: 
+        data = f.read() 
+        truthDict = pickle.loads(data)
+
+    # Load mapped ground truth labels from a file
+    with open('truthMapped.pkl', 'rb') as f:
+        data = f.read() 
+        mappedTruthDict = pickle.loads(data)  
+    
+    # Use mappings to get the correct labels
+    mappedTruthDict = { k:v[0] for (k,v) in mappedTruthDict.items() }
+    truth = np.array( list( mappedTruthDict.values() ) )
+
     # Load pre-trained model
     model = tf.keras.Sequential([
-        hub.KerasLayer("https://tfhub.dev/google/imagenet/inception_v1/classification/4")
+
+        hub.KerasLayer("https://tfhub.dev/google/imagenet/inception_v1/classification/4"),
+        tf.keras.layers.Softmax()   # Add a softmax layer to get probabilities
+
     ])
     model.build( IMG_DIMS )  # Batch input shape
     model.summary()
 
     # Test the model
     ds = ds.cache().batch(128).prefetch(tf.data.experimental.AUTOTUNE)
-    logits = model.predict(ds)
-    print( tf.shape(logits) )
+    probs = model.predict(ds)
+    print( tf.shape(probs) )
+    print( tf.math.top_k(probs, k=kVal) )
+
+    # Calculate accuracy
+    calcAcc( probs, truth, kVal )
     
     # for img, label in ds.take(1):
 

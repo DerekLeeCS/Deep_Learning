@@ -7,10 +7,11 @@ Midterm/Checkpoints
 Final/cocoapi-master
 Final/ILSVRC2012_devkit_t12
 Final/images
+Final/papers
 Final/val
-Final/annotations
 Final/ideas.txt
 Final/notes.txt
 *.docx
+*.pkl
 *.tfrecords
 *.zip
