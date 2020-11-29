@@ -7,6 +7,8 @@ import matplotlib.patches as patches
 import skimage.io as io
 import pickle
 import os
+import glob
+import blur
 
 
 # From:
@@ -100,6 +102,8 @@ def map_func( image, label, bbox ):
 
     image = tf.image.resize( image, IMG_SIZE )
 
+    image = blur.applyBlur( image, 113, 113, 70 )
+
     return image, label
 
 
@@ -122,13 +126,32 @@ def calcAcc( probs, truth, k ):
 
     return
     
+
+def sortRecs( rec ):
+
+    fileName, _ = rec.split( '.' )
+    _, num = fileName.split( '-' )
+    return int(num)
+
     
 if __name__ == "__main__":
     
     # Load data
-    filename = [ os.path.join(recPath, recName + '-' + '1' + '.tfrecords'), 
-            os.path.join(recPath, recName + '-' + '2' + '.tfrecords') ]
-    tfr_dataset = tf.data.TFRecordDataset(filename) 
+    # filename = [ os.path.join(recPath, recName + '-' + '1' + '.tfrecords'), 
+    #         os.path.join(recPath, recName + '-' + '2' + '.tfrecords') ]
+    # Iterate through all images of a specific extension in the specified directory
+    fileName = []
+    imgPath = os.path.join( recPath, '*.tfrecords' )
+
+    for filepath in glob.iglob( imgPath ):
+        print(filepath)
+        fileName.append( filepath )
+
+    # Sort list of tfrecords in numerical ascending order b/c ground truth labels are in that order
+    fileName.sort( key=sortRecs )  
+    print( fileName )
+
+    tfr_dataset = tf.data.TFRecordDataset(fileName) 
     dataset = tfr_dataset.map(_parse_tfr_element)
 
     print("\n\n\n\n")
@@ -139,17 +162,7 @@ if __name__ == "__main__":
         normalize_img, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     print( ds.element_spec )
 
-    # i=0
-    # for img, label, _ in ds:
-
-    #     i+=1
-    #     if len(tf.shape( img )) != 3:
-    #         print( i, ": ", tf.shape(img) )
-    #         plt.imshow(img)
-    #         plt.show()
-    #         i=0
-
-    # # Map using tf.py_function
+    # Map using tf.py_function
     ds = ds.map( lambda image, label, bbox: tf.py_function(func=map_func,
           inp=[image, label, bbox], Tout=[tf.float32, tf.int32]) )
 
@@ -164,6 +177,7 @@ if __name__ == "__main__":
     #     fig, ax = plt.subplots()
     #     print( tf.shape( img ) )
     #     print( label )
+    #     img = blur.applyBlur( img, 60, 60, 40 )
     #     ax.imshow( img )
     #     plt.show()
 
@@ -204,7 +218,7 @@ if __name__ == "__main__":
 
     # Calculate accuracy
     calcAcc( probs, truth, kVal )
-    
+
     # for img, label in ds.take(1):
 
     #     print( tf.shape( img ))
