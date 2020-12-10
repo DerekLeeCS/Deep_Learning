@@ -28,7 +28,7 @@ if gpus:
 
 
 # Constants
-IMG_SIZE = [ 227, 227 ]
+IMG_SIZE = [ 224, 224 ]
 kVal = 5    # Top 5
 
 # IMG_DIMS is [ None, IMG_SIZE, 3 ]
@@ -102,7 +102,7 @@ def map_func( image, label, bbox ):
 
     image = tf.image.resize( image, IMG_SIZE )
 
-    image = blur.applyBlur( image, 113, 113, 70 )
+    #image = blur.applyBlur( image, IMG_SIZE[0]//2, IMG_SIZE[1]//2, 70 )
 
     return image, label
 
@@ -110,7 +110,12 @@ def map_func( image, label, bbox ):
 # Function to define shape of tfds
 def ensureShape( image, label ):
 
-    image = tf.ensure_shape( image, [227, 227, 3] )
+    # dims -> [ IMG_SIZE, 3 ]
+    dims = []
+    dims.extend( IMG_SIZE )
+    dims.extend( [3] )
+
+    image = tf.ensure_shape( image, dims )
 
     return image, label
 
@@ -164,7 +169,8 @@ if __name__ == "__main__":
 
     # Map using tf.py_function
     ds = ds.map( lambda image, label, bbox: tf.py_function(func=map_func,
-          inp=[image, label, bbox], Tout=[tf.float32, tf.int32]) )
+          inp=[image, label, bbox], Tout=[tf.float32, tf.int32]), 
+          num_parallel_calls=tf.data.experimental.AUTOTUNE )
 
     # Set (previously known) shapes of images
     ds = ds.map( 
@@ -212,30 +218,9 @@ if __name__ == "__main__":
 
     # Test the model
     ds = ds.cache().batch(128).prefetch(tf.data.experimental.AUTOTUNE)
-    probs = model.predict(ds)
-    print( tf.shape(probs) )
-    print( tf.math.top_k(probs, k=kVal) )
+    logits = model.predict(ds)
+    print( tf.shape(logits) )
+    print( tf.math.top_k(logits, k=kVal) )
 
     # Calculate accuracy
-    calcAcc( probs, truth, kVal )
-
-    # for img, label in ds.take(1):
-
-    #     print( tf.shape( img ))
-    #     result = model.predict( img )
-    #     print( result )
-
-    # dataDir = 'images'
-    # fileName = 'ILSVRC2012_val_00000002.JPEG'
-    # I = io.imread( '%s/%s'%(dataDir,fileName) )
-    # I = tf.convert_to_tensor(I)
-    # I /= 255
-    # print(I)
-    # I = tf.image.resize( I, [ 224, 224 ] )
-    # plt.imshow(I)
-    # plt.show()
-    # I = np.expand_dims( I, axis=0 )
-    # print(tf.shape(I))
-    # x = model.predict( I )
-    # print(x)
-    # print(tf.math.top_k(x, k=5))
+    calcAcc( logits, truth, kVal )

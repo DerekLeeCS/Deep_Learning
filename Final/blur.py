@@ -6,38 +6,43 @@ import skimage.io as io
 import cv2
 
 
-sig_o = 10  # Paper used 1, but this gives similar-looking results
+sig_o = 12.5  # Need this to get similar-looking results
 
 
 # Build Laplacian Pyramid
-def createPyramid( image, sig ):
+def createPyramid( image, sig_o ):
 
     pyramid = []
+    sig = sig_o
+    curImage = image
 
-    # Uses 4 levels of a pyramid
-    for _ in range(4):
+    # Uses N+1 levels of a pyramid
+    N = 5
+    for _ in range(N):
 
-        prevImage = image
-
+        prevImage = curImage
+        height, width, _ = tf.shape( curImage )
+        
         # Gaussian Pyramid
-        image = applyGauss( image, sig )
+        # Apply blur and downsample (and apply blur again)
+        curImage = applyGauss( curImage, sig )
+        curImage = cv2.pyrDown( curImage )
 
         # Laplacian Pyramid
-        pyramid.append( prevImage - image )
-        
-        # Downsample
-        image = cv2.pyrDown(image)
-        sig = 2*sig
+        # Upsample the blurred image and compute the difference
+        resizedImage = cv2.pyrUp( curImage, dstsize=(height, width) )
+        pyramid.append( prevImage - resizedImage )
+
+        sig = sig*2
 
     # Append top of pyramid
-    pyramid.append( image )
+    pyramid.append( curImage )
 
     return pyramid
 
-
-# Apply Gaussian blur
 def applyGauss( image, sig ):
 
+    # Apply Gaussian blur
     ksize = (0,0)   # Kernel size is computed from sig values
     sigX = sig
     sigY = sigX     # sigY uses sigX
@@ -50,9 +55,10 @@ def applyGauss( image, sig ):
 def expWeight( laplacePyramid, u_o, v_o, f_o ):
 
     # Ensure center is an int
-    u_o = tf.cast( np.ceil(u_o), tf.int32 )
-    v_o = tf.cast( np.ceil(v_o), tf.int32 )
-
+    u_o = tf.cast( np.floor(u_o), tf.int32 )
+    v_o = tf.cast( np.floor(v_o), tf.int32 )
+    f_o = tf.cast( np.floor(f_o), tf.int32 )
+    
     # Get ratios to use for each level
     height, width, _ = tf.shape( laplacePyramid[0] )
     u_o = tf.cast( u_o/height, tf.float32 )
@@ -90,11 +96,6 @@ def expWeight( laplacePyramid, u_o, v_o, f_o ):
         kernel = tf.exp( -coords / ( 2*tf.math.pow(f_k,2) ) )
         kernel = np.expand_dims( kernel, axis=-1 )  # For broadcasting
 
-        # print( np.max( laplacePyramid[k]*kernel ))
-        # print( np.min( laplacePyramid[k]*kernel ) )
-        # plt.imshow( laplacePyramid[k]*kernel)
-        # plt.show()
-        # print( tf.shape(kernel) )
         pyramid.append( laplacePyramid[k] * kernel )
 
     return pyramid
@@ -113,7 +114,7 @@ def applyBlur( image, u_o, v_o, f_o ):
     for i in reversed( range( len(pyramid)-1 ) ):
 
         height, width, _ = tf.shape( pyramid[i] )
-        finalImg = tf.image.resize( finalImg, [height,width] )
+        finalImg = cv2.pyrUp( finalImg, dstsize=(height, width) )
         finalImg += pyramid[i]
 
     return finalImg
