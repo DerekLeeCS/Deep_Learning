@@ -3,22 +3,15 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import tensorflow_hub as hub
 import tensorflow_probability as tfp
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import skimage.io as io
+from skimage.filters import threshold_otsu
+from skimage.measure import label, regionprops
+from skimage.morphology import closing, square
+from collections import defaultdict
 import pickle
 import os
 import glob
 import blur
-from skimage.filters import threshold_otsu
-from skimage.segmentation import clear_border
-from skimage.measure import label, regionprops
-from skimage.morphology import closing, square
-from skimage.color import label2rgb
-from collections import defaultdict
-from collections import Counter
-import linecache
-import tracemalloc
 
 
 # From:
@@ -39,47 +32,31 @@ if gpus:
 
 # Constants
 IMG_SIZE = [ 224, 224 ]
-kVal = 5    # Top 5
+kVal = 5    # Take top-k predictions
+alpha = 0.5
+
+# Loss function
+bce = tf.keras.losses.BinaryCrossentropy( from_logits=True )
+
+# Batching
+TOTAL_IMAGES = 500
+BATCH_SIZE = 25
+NUM_BATCHES = TOTAL_IMAGES//BATCH_SIZE
+
+# Ensure number of images is correct
+assert( NUM_BATCHES * BATCH_SIZE == TOTAL_IMAGES )
 
 # IMG_DIMS is [ None, IMG_SIZE, 3 ]
 IMG_DIMS = [ None ]
 IMG_DIMS.extend( IMG_SIZE )
 IMG_DIMS.extend( [3] )
 
-# Location of TFRecords
-recPath = 'records'
-recName = 'ImageNet'
-
-
-# Measure memory usage
-def display_top(snapshot, key_type='lineno', limit=3):
-    snapshot = snapshot.filter_traces((
-        tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
-        tracemalloc.Filter(False, "<unknown>"),
-    ))
-    top_stats = snapshot.statistics(key_type)
-
-    print("Top %s lines" % limit)
-    for index, stat in enumerate(top_stats[:limit], 1):
-        frame = stat.traceback[0]
-        # replace "/path/to/module/file.py" with "module/file.py"
-        filename = os.sep.join(frame.filename.split(os.sep)[-2:])
-        print("#%s: %s:%s: %.1f KiB"
-              % (index, filename, frame.lineno, stat.size / 1024))
-        line = linecache.getline(frame.filename, frame.lineno).strip()
-        if line:
-            print('    %s' % line)
-
-    other = top_stats[limit:]
-    if other:
-        size = sum(stat.size for stat in other)
-        print("%s other: %.1f KiB" % (len(other), size / 1024))
-    total = sum(stat.size for stat in top_stats)
-    print("Total allocated size: %.1f KiB" % (total / 1024))
-
-
-tracemalloc.start()
-
+# TFRecords
+recPath = 'records'             # Location of TFRecords
+recName = 'ImageNet'  
+recSize = 1500                  # Number of examples per TFRecord
+recNum = 2                      # Which TFRecord to load from
+offset = recSize * (recNum-1)   # Offset for the ground truth labels
 
 
 # Read TFRecord file from:
@@ -122,6 +99,7 @@ def map_func( image, label, bbox ):
 
     image = tf.image.resize( image, IMG_SIZE )
 
+    # # Can optionally apply foveation here
     # image = blur.applyBlur( image, IMG_SIZE[0]//2, IMG_SIZE[1]//2, 70 )
 
     return image, label
@@ -144,7 +122,7 @@ def calcAcc( probs, truth, k ):
 
     numEx = tf.shape( probs )[0]
 
-    correctBools = tf.math.in_top_k( truth[ np.arange( 1500,1500+numEx ) ], probs, kVal )
+    correctBools = tf.math.in_top_k( truth[ np.arange( offset,offset+numEx ) ], probs, kVal )
     numCorrect = tf.math.reduce_sum( tf.cast( correctBools, tf.float32 ) )
     print( numCorrect )
     print( numCorrect / tf.cast( numEx, tf.float32 ) )
@@ -162,9 +140,9 @@ def sortRecs( rec ):
 if __name__ == "__main__":
     
     # Load data
-    # fileName = [ os.path.join(recPath, recName + '-' + '1' + '.tfrecords'), 
-    #         os.path.join(recPath, recName + '-' + '2' + '.tfrecords') ]
-    # Iterate through all images of a specific extension in the specified directory
+    fileName = os.path.join(recPath, recName + '-' + str(recNum) + '.tfrecords')
+
+    # # Iterate through all images of a specific extension in the specified directory
     # fileName = []
     # imgPath = os.path.join( recPath, '*.tfrecords' )
 
@@ -176,7 +154,7 @@ if __name__ == "__main__":
     # fileName.sort( key=sortRecs )  
     # print( fileName )
 
-    fileName = os.path.join(recPath, recName + '-' + '2' + '.tfrecords')
+    
 
     tfr_dataset = tf.data.TFRecordDataset(fileName) 
     dataset = tfr_dataset.map(_parse_tfr_element)
@@ -197,27 +175,9 @@ if __name__ == "__main__":
     # Set (previously known) shapes of images
     ds = ds.map( 
         ensureShape, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    # ds = ds.take( 500 )
+    ds = ds.batch( BATCH_SIZE )
+
     print( ds.element_spec )
-
-    # for img, label in ds.take(3):
-        
-    #     fig, ax = plt.subplots()
-    #     print( tf.shape( img ) )
-    #     print( label )
-    #     img = blur.applyBlur( img, 60, 60, 40 )
-    #     ax.imshow( img )
-    #     plt.show()
-
-    # Load mappings from a file
-    # with open('INToTf.pkl', 'rb') as f: 
-    #     data = f.read() 
-    #     INToTf = pickle.loads(data) 
-
-    # Load ground truth labels from a file
-    with open('truth.pkl', 'rb') as f: 
-        data = f.read() 
-        truthDict = pickle.loads(data)
 
     # Load mapped ground truth labels from a file
     with open('truthMapped.pkl', 'rb') as f:
@@ -230,44 +190,31 @@ if __name__ == "__main__":
 
     # Load pre-trained model
     model = tf.keras.Sequential([
-
         hub.KerasLayer("https://tfhub.dev/google/imagenet/inception_v1/classification/4"),
-
     ])
     model.build( IMG_DIMS )  # Batch input shape
     model.summary()
 
-    # # Test the model
-    # ds = ds.cache().batch(128).prefetch(tf.data.experimental.AUTOTUNE)
-    # #ds = ds.cache().prefetch(tf.data.experimental.AUTOTUNE)
-    # logits = model.predict(ds)
-    # print( tf.shape(logits) )
-    # print( tf.math.top_k(logits, k=kVal) )
-
-    # # Calculate accuracy
-    # calcAcc( logits, truth, kVal )
-
     # Store the labels
-    topKOri = np.zeros( [1,kVal] )
-    topKSq = np.zeros( [kVal,kVal] )
-    confs = np.zeros( [kVal,kVal] )
+    topKOri = np.zeros( [BATCH_SIZE, kVal] )
+    topKSq = np.zeros( [BATCH_SIZE, kVal, kVal] )
+    confs = np.zeros( [BATCH_SIZE, kVal, kVal] )
 
-    numTested = 500
     numCorr = 0
     count = 0
 
-    # Loss function
-    bce = tf.keras.losses.BinaryCrossentropy( from_logits=True )
-
-    for I, tempLabel in ds.take( numTested ):
+    for I, tempLabel in ds.take( NUM_BATCHES ).cache().prefetch(tf.data.experimental.AUTOTUNE):
     
-        img = I
-        img = blur.applyBlur( img, 112, 112, 70 )
-        img = tf.reshape( img, [1, 224, 224, 3] )
-        imageVar = tf.Variable( img )
+        # img = I
+        
+        img = []
+        for i in range( BATCH_SIZE ):
+            img.append( blur.applyBlur( I[i], 112, 112, 70 ) )
+        img = tf.convert_to_tensor( img )
 
-        trueLabel = truth[ count+1500 ]
-        count += 1
+        # Ensure the shape is correct
+        img = tf.reshape( img, [BATCH_SIZE, 224, 224, 3] )
+        imageVar = tf.Variable( img )
 
         for topLabel in range(kVal):
 
@@ -280,115 +227,108 @@ if __name__ == "__main__":
                 probs = model( imageVar )
 
                 # Get top-k predictions
-                logits, preds = tf.math.top_k(probs, k=kVal) # Throw out the probs for each top prediction (included in probs variable)
-                topKOri = preds
-                dictOri = dict( zip( preds[0].numpy(), logits[0].numpy() ) )
+                logits, preds = tf.math.top_k(probs, k=kVal)    # Throw out the probs for each top prediction (included in probs variable)
 
-                true = tf.one_hot( preds[0], len( probs[0] )  )  # One-hot encode the predictions to the same size as probs
-
-                loss = bce( probs[0], true[topLabel] )
+                true = tf.one_hot( preds, len( probs[0] )  )    # One-hot encode the predictions to the same size as probs
+                loss = bce( probs, true[:,topLabel,:] )
 
 
             grads = abs( tape.gradient( loss, imageVar ) )
-            grads = tf.reduce_max( grads[0], axis=-1 )
+            grads = tf.reduce_max( grads, axis=-1 )
+            
+            # Save original predictions
+            dictOri = []
+            for i in range( BATCH_SIZE ):
+                dictOri.append( dict( zip( preds[i].numpy(), tf.nn.softmax( logits[i] ).numpy() ) ) )    # Apply a softmax to normalize for comparison
 
-            thres = tfp.stats.percentile( grads, q=80 )
-            grads = tf.keras.activations.relu( grads, threshold=thres )
+            for i in range( BATCH_SIZE ):
 
-            image = grads.numpy()
+                # Find 80th percentile and apply first threshold
+                thres = tfp.stats.percentile( grads[i], q=80 )
+                image = tf.keras.activations.relu( grads[i], threshold=thres ).numpy()
 
-            # apply threshold
-            thres = threshold_otsu(image)
-            bw = closing(image > thres, square(3))
+                # Apply threshold
+                thres = threshold_otsu(image)
+                bw = closing(image > thres, square(3))
 
-            # label image regions
-            label_image = label(bw)
-            # to make the background transparent, pass the value of `bg_label`,
-            # and leave `bg_color` as `None` and `kind` as `overlay`
-            image_label_overlay = label2rgb(label_image, image=image, bg_label=0)
+                # label image regions
+                label_image = label(bw)
 
-            curMaxArea = 0
+                # Get max region
+                curMaxArea = 0
+                for region in regionprops(label_image):
+                    
+                    if region.area >= curMaxArea:
 
-            # Get max region
-            for region in regionprops(label_image):
-                
-                if region.area >= curMaxArea:
+                        curMaxArea = region.area
+                        maxRegion = region
 
-                    curMaxArea = region.area
-                    maxRegion = region
+                minr, minc, maxr, maxc = maxRegion.bbox
 
+                # Second pass
+                height = maxc - minc
+                width = maxr - minr
+                f_new = np.floor( alpha * np.max( [height, width] ) )
+                f_new = np.max( [30, f_new] )   # Minimum foveal size
+                centerX = minc + height/2
+                centerY = minr + width/2
+    
+                imgSec = blur.applyBlur( I[i], centerX, centerY, f_new )
+                # imgSec = blur.applyBlur( I[i], centerX, centerY, 70 )
 
-            minr, minc, maxr, maxc = maxRegion.bbox
+                imgSec = tf.reshape( imgSec, [1, 224, 224, 3] )
 
-            # Second pass
-            height = maxc - minc
-            width = maxr - minr
-            f_new = np.floor( np.max( [height, width] ) / 2 )
-            f_new = np.max( [30, f_new] )   # Minimum foveal size
-            centerX = minc + height/2
-            centerY = minr + width/2
-  
-            imgSec = I
-            #imgSec = blur.applyBlur( imgSec, centerX, centerY, f_new )
-            imgSec = blur.applyBlur( imgSec, centerX, centerY, 70 )
-
-            # Show image
-            # fig, ax = plt.subplots()
-            # plt.imshow( imgSec )
-            # ax.add_patch( patches.Circle( (centerX, centerY), f_new, fill=False, color='r' ) )
-            # plt.show()
-            imgSec = tf.reshape( imgSec, [1, 224, 224, 3] )
-
-            logits = model.predict( imgSec )
-            conf, preds = tf.math.top_k(logits, k=kVal)
-            confs[ topLabel ] = conf
-            topKSq[ topLabel ] = preds
+                logits = model.predict( imgSec )
+                conf, preds = tf.math.top_k(logits, k=kVal)
+                confs[i][ topLabel ] = conf
+                topKSq[i][ topLabel ] = preds
 
         # Map top-k into dicts
-        dicts = []
-        for i in range( kVal ):
-            dicts.append( dict( zip( topKSq[i], confs[i] ) ) )
+        dictsBatched = []
+        for i in range( BATCH_SIZE ):
+            dicts = []
+            for j in range( kVal ):
+                dicts.append( dict( zip( topKSq[i][j], tf.nn.softmax( confs[i][j] ).numpy() ) ) )     # Apply a softmax to normalize for comparison
+            dictsBatched.append( dicts )
 
         # Get the highest confidences for each unique label
         dictTopK = defaultdict(int)
 
-        # Do not include the original top-k
-        dictTopK.update( dicts[0] )
-        for i in range(1,kVal):
-            dictTopK.update( (k,v) for k,v in dicts[i].items() if dictTopK[k] < v )
+        # Get predictions for each example in the batch
+        for i in range( BATCH_SIZE ):
+            
+            # Reset
+            dictTopK.clear()
+            dicts = dictsBatched[i]
 
-        # # Include the original top-k
-        # dictTopK.update( dictOri )
-        # for i in range(kVal):
-        #     dictTopK.update( (k,v) for k,v in dicts[i].items() if dictTopK[k] < v )
+            # Do not include the original top-k
+            dictTopK.update( dicts[0] )
+            for j in range(1,kVal):
+                dictTopK.update( (k,v) for k,v in dicts[j].items() if dictTopK[k] < v )
 
-        # Sort the dict in descending order
-        # Get topK labels
-        tupleTopK = sorted(dictTopK.items(), key=lambda x: x[1], reverse=True)[:kVal]
+            # Include the original top-k
+            # dictTopK.update( dictOri[i] )
+            # for i in range(kVal):
+            #     dictTopK.update( (k,v) for k,v in dicts[i].items() if dictTopK[k] < v )
 
-        dictTopK = {}
+            # Sort the dict in descending order
+            # Get topK labels
+            tupleTopK = sorted(dictTopK.items(), key=lambda x: x[1], reverse=True)[:kVal]
 
-        # Get labels into a list
-        newTopK = [ int(x[0]) for x in tupleTopK ]
+            # Get labels into a list
+            newTopK = [ int(x[0]) for x in tupleTopK ]
 
-        if trueLabel in newTopK:
-            numCorr += 1
-        else:
-            print( newTopK )
-            print( trueLabel )
-            print( "Completed", count )
+            # Get true label from ground truth
+            trueLabel = truth[ offset+count ]
+            count += 1
 
-        # # For single pass
-        # if trueLabel in topKOri[0]:
-        #     numCorr += 1
-        # else:
-        #     print( topKOri )
-        #     print( trueLabel )
-        #     print( "Completed", count )
+            if trueLabel in newTopK:
+                numCorr += 1
+            else:
+                print( newTopK )
+                print( trueLabel )
+                print( "Completed", count )
 
-        # if count % 10 == 0:
-        #     snapshot = tracemalloc.take_snapshot()
-        #     display_top(snapshot)
-
-    print( numCorr, numTested )
-    print( numCorr/numTested )
+    print( numCorr, TOTAL_IMAGES )
+    print( "Percent Correct:", numCorr/TOTAL_IMAGES )
+    print( "Alpha:", alpha )

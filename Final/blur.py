@@ -25,8 +25,8 @@ def createPyramid( image, sig_o ):
         
         # Gaussian Pyramid
         # Apply blur and downsample (and apply blur again)
-        curImage = applyGauss( curImage, sig )
         curImage = cv2.pyrDown( curImage )
+        curImage = applyGauss( curImage, sig )
 
         # Laplacian Pyramid
         # Upsample the blurred image and compute the difference

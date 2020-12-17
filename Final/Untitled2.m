@@ -1,1 +1,0 @@
-writetable(struct2table(synsets), 'somefile.txt')
