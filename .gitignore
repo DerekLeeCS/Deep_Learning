@@ -1,19 +1,12 @@
 Week 2/jonlam.py
 Week 2/jonlam2.py
-Week 3/singleDigitParams.py
 Week 4/cifar-10-batches-py
 Week 4/cifar-100-python
-Midterm/Checkpoints
-Final/cocoapi-master
-Final/ILSVRC2012_devkit_t12
-final/Graphics
-Final/images
-Final/papers
-Final/val
-Final/ideas.txt
-Final/notes.txt
+Final/code/images
+Final/code/val
 *.docx
 *.pkl
 *.tfrecords
 *.zip
 *.xlsx
+*.JPEG
